@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Daily Assistant ডাউনলোড</title>
+<style>
+:root{--bg:#1b1722;--card:#2a2336;--tx:#fff;--mut:#cfc7e0;--ac:#ff8aa5;--acx:#2a1020;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#f6f1fa;--card:#fff;--tx:#241a33;--mut:#6a5d80;--ac:#e0446d;--acx:#fff}}
+:root[data-theme="light"]{--bg:#f6f1fa;--card:#fff;--tx:#241a33;--mut:#6a5d80;--ac:#e0446d;--acx:#fff}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font-family:"Noto Sans Bengali","Hind Siliguri",system-ui,sans-serif;line-height:1.65}
+.w{max-width:520px;margin:0 auto;padding:28px 18px 40px;display:flex;flex-direction:column;gap:18px}
+.hero{text-align:center;padding:26px 16px;border-radius:26px;background:linear-gradient(160deg,#4b2d6b,#2a2336 70%);color:#fff}
+.ic{width:92px;height:92px;margin:0 auto 12px;border-radius:26px;background:linear-gradient(145deg,#ff8aa5,#b06cff);display:grid;place-items:center;font-size:46px;box-shadow:0 10px 26px #0006}
+h1{margin:0;font-size:26px}
+.sub{margin:6px 0 0;color:#e2d9f3;font-size:15px}
+.btn{display:block;text-align:center;text-decoration:none;background:var(--ac);color:var(--acx);font-weight:700;font-size:18px;padding:16px;border-radius:18px;box-shadow:0 6px 18px #0003}
+.btn:active{transform:scale(.98)}
+.meta{text-align:center;color:var(--mut);font-size:14px;min-height:22px}
+.card{background:var(--card);border-radius:20px;padding:18px}
+.card h2{margin:0 0 10px;font-size:17px}
+ol{margin:0;padding-left:22px;color:var(--mut);font-size:15px}
+ol li{margin:6px 0}
+.alt{display:block;text-align:center;color:var(--ac);font-size:15px;text-decoration:none}
+.foot{text-align:center;color:var(--mut);font-size:12px}
+</style>
+</head>
+<body>
+<div class="w">
+  <div class="hero">
+    <div class="ic">🎙️</div>
+    <h1>Daily Assistant</h1>
+    <p class="sub">আপনার কথা শুনে নারীকণ্ঠে বলে ফেরত দেয় এমন একটি 3D কার্টুন চরিত্র</p>
+  </div>
+  <a class="btn" id="dl" href="https://github.com/alamgirabdullahgh/Daily-Assistant/releases/latest/download/DailyAssistant.apk">⬇️ APK ডাউনলোড করুন</a>
+  <div class="meta" id="meta">সর্বশেষ ভার্সন খোঁজা হচ্ছে…</div>
+  <div class="card">
+    <h2>ইনস্টল করবেন যেভাবে</h2>
+    <ol>
+      <li>উপরের বাটনে চেপে ফাইলটি ডাউনলোড করুন।</li>
+      <li>ডাউনলোড শেষ হলে ফাইলটি খুলুন।</li>
+      <li>ফোন জানতে চাইলে "এই উৎস থেকে ইনস্টলের অনুমতি" দিন।</li>
+      <li>ইনস্টল হলে অ্যাপ খুলে মাইকের অনুমতি দিন।</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h2>আপডেট করবেন যেভাবে</h2>
+    <ol>
+      <li>অ্যাপের নিচের ⬇️ বাটন চাপলে নতুন ভার্সন আছে কিনা দেখা যাবে।</li>
+      <li>নতুন ভার্সন থাকলে ওই বাটন থেকেই ডাউনলোড করে আগেরটির ওপর ইনস্টল করুন।</li>
+    </ol>
+  </div>
+  <a class="alt" href="./">অ্যাপ ছাড়াই ব্রাউজারে চালান →</a>
+  <div class="foot">Avatar: Ready Player Me (CC BY-NC 4.0) · three.js (MIT)</div>
+</div>
+<script>
+(async()=>{
+  const m=document.getElementById('meta');
+  try{
+    const r=await fetch('https://api.github.com/repos/alamgirabdullahgh/Daily-Assistant/releases/latest',{headers:{Accept:'application/vnd.github+json'}});
+    const j=await r.json();
+    const a=(j.assets||[]).find(x=>/\.apk$/i.test(x.name));
+    if(!a){m.textContent='APK তৈরি হচ্ছে, কিছুক্ষণ পরে আবার দেখুন';return}
+    const mb=(a.size/1048576).toFixed(1);
+    const d=new Date(j.published_at).toLocaleDateString('bn-BD',{year:'numeric',month:'long',day:'numeric'});
+    m.textContent='ভার্সন '+j.tag_name+' · '+mb+' MB · '+d;
+  }catch(e){m.textContent='ভার্সনের তথ্য আনা যায়নি, তবুও ডাউনলোড বাটন কাজ করবে'}
+})();
+</script>
+</body>
+</html>

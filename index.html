@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Daily Assistant</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+  html,body { margin:0; height:100%; overflow:hidden; background:radial-gradient(ellipse at 50% 38%, #6a5a78 0%, #3a2f48 45%, #17131f 100%); font-family:system-ui,sans-serif; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #status { position:fixed; top:calc(env(safe-area-inset-top) + 12px); left:50%; transform:translateX(-50%); padding:6px 16px; border-radius:20px; background:#000a; color:#fff; font-size:14px; z-index:5; white-space:nowrap; }
+  #bar { position:fixed; bottom:calc(env(safe-area-inset-bottom) + 22px); left:50%; transform:translateX(-50%); display:flex; gap:10px; z-index:5; }
+  #bar button { width:52px; height:52px; border:0; border-radius:50%; font-size:22px; background:#fff; box-shadow:0 3px 10px #0006; }
+  #bar button.on { background:#ff8aa5; }
+  #credit { position:fixed; bottom:4px; right:8px; font-size:9px; color:#fff6; z-index:5; }
+  #upd.new { background:#7cffb2; animation:pl 1.2s infinite; }
+  @keyframes pl { 50% { transform:scale(1.12); } }
+  #sheet { position:fixed; inset:0; z-index:20; display:flex; align-items:flex-end; justify-content:center; background:#0008; }
+  #sheet[hidden] { display:none; }
+  #sheet .card { width:100%; max-width:480px; background:#2a2336; color:#fff; border-radius:22px 22px 0 0; padding:20px 20px calc(env(safe-area-inset-bottom) + 20px); display:flex; flex-direction:column; gap:10px; }
+  #sheet h3 { margin:0; font-size:19px; }
+  #ver { font-size:14px; color:#d6cfe6; white-space:pre-line; line-height:1.7; }
+  #msg { font-size:15px; font-weight:600; min-height:22px; }
+  #sheet button { border:0; border-radius:14px; padding:13px 16px; font-size:16px; background:#ffffff1f; color:#fff; font-family:inherit; }
+  #sheet button.main { background:#ff8aa5; color:#2a1020; font-weight:700; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="status">লোড হচ্ছে…</div>
+<div id="bar"><button id="lang">🌐</button><button id="mic">🎤</button><button id="voice">🔊</button><button id="fit">👗</button><button id="upd">⬇️</button></div>
+<div id="sheet" hidden><div class="card">
+  <h3>অ্যাপ আপডেট</h3>
+  <div id="ver"></div><div id="msg"></div>
+  <button class="main" id="dl">⬇️ সর্বশেষ APK ডাউনলোড করুন</button>
+  <button id="ref">🔄 কনটেন্ট রিফ্রেশ করুন</button>
+  <button id="cls">বন্ধ করুন</button>
+</div></div>
+<div id="credit">Avatar: Ready Player Me, CC BY-NC 4.0</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from './lib/jsm/loaders/GLTFLoader.js';
+import { RoomEnvironment } from './lib/jsm/environments/RoomEnvironment.js';
+
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+const setStatus = t => statusEl.textContent = t;
+
+/* ---------- 3D scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = null;
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 20);
+scene.add(new THREE.HemisphereLight(0xfff4ea, 0x554466, 0.45));
+const key = new THREE.DirectionalLight(0xffe9d6, 2.0); key.position.set(1.4, 2.4, 2.6); scene.add(key);
+const rim = new THREE.DirectionalLight(0xb9c8ff, 1.4); rim.position.set(-2, 2.0, -1.5); scene.add(rim);
+const fill = new THREE.DirectionalLight(0xffd2c0, 0.5); fill.position.set(-2, 1.0, 2); scene.add(fill);
+
+let head, neck, spine, morphMeshes = [], baseHead = new THREE.Euler(), baseNeck = new THREE.Euler();
+let headPos = new THREE.Vector3();
+
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h); camera.aspect = w/h;
+  // show from about the hips up to above the head, wide enough for the shoulders
+  const tanH = Math.tan(THREE.MathUtils.degToRad(camera.fov/2));
+  const needH = 1.2, needW = 0.75;
+  const dist = Math.max(needH/(2*tanH), needW/(2*tanH*camera.aspect));
+  const cy = headPos.y - 0.36;
+  camera.position.set(headPos.x, cy + 0.04, headPos.z + dist);
+  camera.lookAt(headPos.x, cy, headPos.z);
+  camera.updateProjectionMatrix();
+}
+addEventListener('resize', resize);
+
+new GLTFLoader().load('./models/woman.glb', gltf => {
+  const model = gltf.scene; scene.add(model);
+  model.traverse(o => {
+    if (o.name === 'Wolf3D_Glasses') o.visible = false;
+    if (o.isMesh && o.material) { o.material.envMapIntensity = 0.6; o.frustumCulled = false; }
+    if (o.isMesh && o.morphTargetDictionary) morphMeshes.push(o);
+  });
+  styleModel(model);
+  head = model.getObjectByName('Head'); neck = model.getObjectByName('Neck');
+  if (head) baseHead.copy(head.rotation); if (neck) baseNeck.copy(neck.rotation);
+  model.updateMatrixWorld(true);
+  if (head) head.getWorldPosition(headPos);
+  resize(); setStatus('মাইক চালু হচ্ছে…'); autoStart();
+}, undefined, () => setStatus('মডেল লোড হয়নি, ইন্টারনেট চেক করুন'));
+
+/* ---------- look & stylish outfits ---------- */
+const OUTFITS = [
+  { n:'এমারেল্ড সাটিন',   top:0x0f6b4f, bottom:0x15151a, shoe:0x15151a },
+  { n:'আইভরি ও ক্যামেল',  top:0xf1e8d8, bottom:0xb48a5a, shoe:0x8a5a35 },
+  { n:'ওয়াইন রেড',       top:0x7a1530, bottom:0x23232b, shoe:0x15151a },
+  { n:'নেভি ও হোয়াইট',   top:0x1d2f5c, bottom:0xf4f1ec, shoe:0xd9c4a8 },
+  { n:'ব্লাশ পিঙ্ক',      top:0xe9a9b5, bottom:0xe8e4de, shoe:0xf1e8d8 },
+  { n:'অল ব্ল্যাক চিক',    top:0x0e0e12, bottom:0x0e0e12, shoe:0xc9a24a },
+];
+let outfitIdx = parseInt(localStorage.getItem('outfit') ?? '0') % OUTFITS.length;
+const parts = {};
+function styleModel(model){
+  model.traverse(o => {
+    if (!o.isMesh) return;
+    const old = o.material;
+    if (/Outfit_Top/.test(o.name)) parts.top = o;
+    if (/Outfit_Bottom/.test(o.name)) parts.bottom = o;
+    if (/Outfit_Footwear/.test(o.name)) parts.shoe = o;
+    if (/EyeLeft|EyeRight/.test(o.name)) { old.roughness = 0.08; old.metalness = 0; old.envMapIntensity = 1.2; }
+    if (/Wolf3D_Head|Wolf3D_Body/.test(o.name)) { old.roughness = 0.62; old.metalness = 0; }
+    if (/Wolf3D_Hair/.test(o.name)) { old.roughness = 0.42; old.envMapIntensity = 0.9; }
+  });
+  for (const k of ['top','bottom','shoe']){
+    const m = parts[k]; if (!m) continue;
+    const old = m.material;
+    m.material = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff, normalMap: old.normalMap, side: THREE.DoubleSide,
+      roughness: k==='top' ? 0.36 : k==='shoe' ? 0.3 : 0.55, metalness: k==='shoe' ? 0.15 : 0,
+      sheen: k==='top' ? 1 : 0.4, sheenRoughness: 0.35, sheenColor: new THREE.Color(0xffffff),
+      envMapIntensity: 0.7
+    });
+  }
+  applyOutfit(false);
+}
+function applyOutfit(announce){
+  const o = OUTFITS[outfitIdx];
+  if (parts.top)    { parts.top.material.color.setHex(o.top);       parts.top.material.sheenColor.setHex(o.top).offsetHSL(0,0,0.25); }
+  if (parts.bottom) { parts.bottom.material.color.setHex(o.bottom); parts.bottom.material.sheenColor.setHex(o.bottom).offsetHSL(0,0,0.2); }
+  if (parts.shoe)   { parts.shoe.material.color.setHex(o.shoe); }
+  if (announce) setStatus('👗 ' + o.n);
+}
+$('fit').onclick = () => { outfitIdx = (outfitIdx + 1) % OUTFITS.length; localStorage.setItem('outfit', String(outfitIdx)); applyOutfit(true); nudge = -0.06; };
+
+function morph(name, v){
+  for (const m of morphMeshes){ const i = m.morphTargetDictionary[name]; if (i !== undefined) m.morphTargetInfluences[i] = v; }
+}
+const cur = {}; // smoothed values
+function setSmooth(name, target, k=0.35){ cur[name] = (cur[name] ?? 0) + (target - (cur[name] ?? 0)) * k; morph(name, cur[name]); }
+
+/* ---------- animation ---------- */
+let mouth = 0, speaking = false, nextBlink = 2, blinkT = -1, visemeIdx = 0, visemeT = 0, nudge = 0;
+const visemes = ['viseme_O','viseme_E','viseme_U','viseme_I','viseme_aa'];
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta(), t = clock.elapsedTime;
+  if (head) {
+    head.rotation.y = baseHead.y + Math.sin(t*0.6)*0.05 + (speaking ? Math.sin(t*3.1)*0.04 : 0);
+    head.rotation.x = baseHead.x + Math.sin(t*0.9)*0.02 + (speaking ? mouth*0.05 : 0) + nudge;
+    head.rotation.z = baseHead.z + Math.sin(t*0.45)*0.015;
+    nudge *= 0.92;
+  }
+  // mouth from live output amplitude
+  let amp = 0;
+  if (speaking && nativeSpeak){ amp = Math.max(0, Math.min(1, (0.5 + 0.5*Math.sin(t*13) * (0.6+0.4*Math.sin(t*5.3))) * (0.55 + 0.45*Math.random()))); }
+  else if (speaking && outAnalyser){
+    const a = new Uint8Array(outAnalyser.fftSize); outAnalyser.getByteTimeDomainData(a);
+    let s = 0; for (const v of a){ const x=(v-128)/128; s += x*x; } amp = Math.min(1, Math.sqrt(s/a.length) * 5);
+  }
+  mouth += (amp - mouth) * 0.45;
+  visemeT -= dt; if (visemeT <= 0){ visemeIdx = Math.floor(Math.random()*visemes.length); visemeT = 0.09 + Math.random()*0.1; }
+  setSmooth('jawOpen', mouth*0.55);
+  setSmooth('mouthOpen', mouth*0.25);
+  for (const v of visemes) setSmooth(v, speaking && v === visemes[visemeIdx] ? mouth*0.7 : 0, 0.4);
+  setSmooth('mouthSmile', speaking ? 0.18 : 0.12 + (listening ? 0.1 : 0), 0.1);
+  setSmooth('browInnerUp', listening && !speaking ? 0.25 : 0.08, 0.08);
+  // blinking
+  nextBlink -= dt;
+  if (nextBlink <= 0 && blinkT < 0){ blinkT = 0; nextBlink = 2 + Math.random()*3.5; }
+  let blink = 0; if (blinkT >= 0){ blinkT += dt; blink = Math.sin(Math.min(1, blinkT/0.16) * Math.PI); if (blinkT > 0.16) blinkT = -1; }
+  morph('eyeBlinkLeft', blink); morph('eyeBlinkRight', blink);
+  renderer.render(scene, camera);
+});
+renderer.domElement.addEventListener('pointerdown', () => { nudge = -0.08; if (ctx && ctx.state==='suspended') ctx.resume(); autoStart(); });
+
+/* ---------- voice: listen -> repeat in a higher, feminine voice ---------- */
+let ctx, stream, analyser, outAnalyser, rec, chunks = [], recording = false, listening = false, busy = false, lastLoud = 0, startedAt = 0, manualStop = false;
+const PITCH = 1.3;
+
+async function startListening(){
+  try{
+    ctx = ctx || new (window.AudioContext||window.webkitAudioContext)();
+    await ctx.resume();
+    stream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true } });
+    const src = ctx.createMediaStreamSource(stream);
+    analyser = ctx.createAnalyser(); analyser.fftSize = 1024; src.connect(analyser);
+    outAnalyser = ctx.createAnalyser(); outAnalyser.fftSize = 512; outAnalyser.connect(ctx.destination);
+    listening = true; $('mic').classList.add('on'); setStatus('আমি শুনছি… কিছু বলুন 🙂');
+    loop();
+  }catch(e){ setStatus('মাইকের অনুমতি দিন, তারপর স্ক্রিনে একবার ট্যাপ করুন'); }
+}
+function stopListening(){
+  listening = false; $('mic').classList.remove('on');
+  if (stream) stream.getTracks().forEach(t=>t.stop());
+  setStatus('মাইক বন্ধ (🎤 চাপলে আবার চালু)');
+}
+function level(){
+  const a = new Uint8Array(analyser.fftSize); analyser.getByteTimeDomainData(a);
+  let s=0; for (const v of a){ const x=(v-128)/128; s+=x*x; } return Math.sqrt(s/a.length);
+}
+function loop(){
+  if (!listening) return;
+  if (!busy){
+    const l = level(), now = performance.now();
+    if (l > 0.04){ lastLoud = now; if (!recording) beginRec(); }
+    else if (recording && now - lastLoud > 800) endRec();
+    if (recording && now - startedAt > 10000) endRec();
+  }
+  requestAnimationFrame(loop);
+}
+function beginRec(){
+  chunks = []; rec = new MediaRecorder(stream);
+  rec.ondataavailable = e => chunks.push(e.data);
+  rec.onstop = onRecDone; rec.start(); recording = true; startedAt = performance.now();
+}
+function endRec(){ recording = false; if (rec && rec.state !== 'inactive') rec.stop(); }
+async function onRecDone(){
+  if (performance.now() - startedAt < 500) return;
+  busy = true;
+  try{
+    const buf = await ctx.decodeAudioData(await new Blob(chunks).arrayBuffer());
+    const s = ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = PITCH;
+    s.connect(outAnalyser);
+    speaking = true; setStatus('💬');
+    s.onended = () => { speaking = false; busy = false; setStatus('আমি শুনছি… কিছু বলুন 🙂'); };
+    s.start();
+  }catch(e){ busy = false; }
+}
+
+/* ---------- native mode: real female TTS (Android app) ---------- */
+const Cap = window.Capacitor;
+const SR = Cap && Cap.Plugins && Cap.Plugins.SpeechRecognition;
+const TTS = Cap && Cap.Plugins && Cap.Plugins.TextToSpeech;
+const isNative = !!(Cap && Cap.isNativePlatform && Cap.isNativePlatform() && SR && TTS);
+let nativeSpeak = false, nativeOn = false, lang = localStorage.getItem('lang') || 'bn-BD', voices = [], voiceIdx = parseInt(localStorage.getItem('voice') ?? '-1');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function say(text){
+  nativeSpeak = true; speaking = true; setStatus('💬 ' + text);
+  try{
+    const o = { text, lang, rate: 1.0, pitch: 1.2, volume: 1.0, category: 'playback', queueStrategy: 0 };
+    if (voiceIdx >= 0) o.voice = voiceIdx;
+    await TTS.speak(o);
+  }catch(e){ setStatus('এই ভাষার কণ্ঠ ফোনে নেই। Settings → Text-to-speech থেকে ভাষা ডাউনলোড করুন'); await sleep(2500); }
+  nativeSpeak = false; speaking = false;
+}
+async function nativeLoop(){
+  if (nativeOn) return; nativeOn = true;
+  try{
+    const p = await SR.requestPermissions();
+    if (p.speechRecognition !== 'granted'){ setStatus('মাইকের অনুমতি দিন'); nativeOn = false; return; }
+    const av = await SR.available(); if (!av.available){ setStatus('এই ফোনে Google voice recognition নেই'); nativeOn = false; return; }
+  }catch(e){}
+  try{ voices = (await TTS.getSupportedVoices()).voices || []; }catch(e){}
+  if (voiceIdx < 0){ const f = voices.findIndex(v => /female/i.test(v.name||'') && (v.lang||'').toLowerCase().replace('_','-').startsWith(lang.slice(0,2).toLowerCase())); if (f >= 0) voiceIdx = f; }
+  listening = true; $('mic').classList.add('on');
+  while (listening){
+    try{
+      setStatus('আমি শুনছি… কিছু বলুন 🙂');
+      const r = await SR.start({ language: lang, maxResults: 1, prompt: '', partialResults: false, popup: false });
+      const text = r && r.matches && r.matches[0];
+      if (text && listening) await say(text);
+    }catch(e){ await sleep(500); }
+  }
+  nativeOn = false;
+}
+
+/* ---------- web mode: browser speech recognition + female TTS ---------- */
+const WSR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const canWebTTS = !isNative && !!(WSR && window.speechSynthesis);
+let webOn = false, webRec = null;
+function pickWebVoice(){
+  const pre = lang.slice(0,2).toLowerCase();
+  const vs = speechSynthesis.getVoices().filter(v => (v.lang||'').toLowerCase().replace('_','-').startsWith(pre));
+  return vs.find(v => /female|nabanita|tanishaa|zira|heera|samantha/i.test(v.name)) || vs[0] || null;
+}
+function webSay(text){
+  return new Promise(res => {
+    const u = new SpeechSynthesisUtterance(text), v = pickWebVoice();
+    if (v){ u.voice = v; u.lang = v.lang; } else u.lang = lang;
+    u.pitch = 1.25; u.rate = 1;
+    nativeSpeak = true; speaking = true; setStatus('💬 ' + text);
+    u.onend = u.onerror = () => { nativeSpeak = false; speaking = false; res(); };
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  });
+}
+async function webLoop(){
+  if (webOn) return; webOn = true; listening = true; $('mic').classList.add('on');
+  while (listening){
+    const text = await new Promise(res => {
+      const r = new WSR(); webRec = r; r.lang = lang; r.interimResults = false; r.maxAlternatives = 1;
+      r.onresult = e => res(e.results[0][0].transcript);
+      r.onerror = ev => { if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed'){ listening = false; setStatus('মাইকের অনুমতি দিন, তারপর স্ক্রিনে একবার ট্যাপ করুন'); } res(null); };
+      r.onend = () => res(null);
+      try{ setStatus('আমি শুনছি… কিছু বলুন 🙂'); r.start(); }catch(e){ res(null); }
+    });
+    if (text && listening) await webSay(text); else if (listening) await sleep(400);
+  }
+  webOn = false; $('mic').classList.remove('on');
+}
+$('lang').onclick = () => {
+  lang = (lang === 'bn-BD') ? 'en-US' : 'bn-BD'; localStorage.setItem('lang', lang); voiceIdx = -1; localStorage.setItem('voice','-1');
+  setStatus(lang === 'bn-BD' ? 'ভাষা: বাংলা' : 'Language: English');
+  if (isNative && SR) { try{ SR.stop(); }catch(e){} }
+};
+$('voice').onclick = async () => {
+  if (!isNative){ setStatus(canWebTTS ? 'ব্রাউজারে নারী কণ্ঠ স্বয়ংক্রিয়ভাবে বাছাই হয়' : 'নারী কণ্ঠ বদলাতে অ্যাপ ব্যবহার করুন'); return; }
+  const c = voices.map((v,i)=>({v,i})).filter(x => (x.v.lang||'').toLowerCase().replace('_','-').startsWith(lang.slice(0,2).toLowerCase()));
+  if (!c.length){ setStatus('এই ভাষার কোনো কণ্ঠ পাওয়া যায়নি'); return; }
+  const pos = c.findIndex(x => x.i === voiceIdx);
+  voiceIdx = c[(pos + 1) % c.length].i; localStorage.setItem('voice', String(voiceIdx));
+  try{ SR.stop(); }catch(e){}
+  await say(lang === 'bn-BD' ? 'আমি এই কণ্ঠে কথা বলছি' : 'This is my voice');
+};
+async function autoStart(){ if (listening || manualStop) return; if (isNative) await nativeLoop(); else if (canWebTTS) await webLoop(); else await startListening(); }
+$('mic').onclick = () => { if (listening){ manualStop = true; if (isNative){ listening = false; try{ SR.stop(); }catch(e){} $('mic').classList.remove('on'); setStatus('মাইক বন্ধ (🎤 চাপলে আবার চালু)'); } else if (canWebTTS){ listening = false; try{ webRec && webRec.stop(); }catch(e){} speechSynthesis.cancel(); $('mic').classList.remove('on'); setStatus('মাইক বন্ধ (🎤 চাপলে আবার চালু)'); } else stopListening(); } else { manualStop = false; autoStart(); } };
+document.addEventListener('visibilitychange', () => { if (!document.hidden){ if (ctx) ctx.resume(); if (!listening) autoStart(); } });
+setInterval(() => { if (!isNative && listening && stream && !stream.active){ listening = false; autoStart(); } }, 3000);
+
+/* ---------- update option ---------- */
+const REPO = 'alamgirabdullahgh/Daily-Assistant';
+const APK_URL = 'https://github.com/' + REPO + '/releases/latest/download/DailyAssistant.apk';
+let installedBuild = null, latestBuild = null;
+async function getInstalled(){
+  try{ const A = Cap && Cap.Plugins && Cap.Plugins.App; if (A && A.getInfo){ const i = await A.getInfo(); return parseInt(i.build) || null; } }catch(e){}
+  return null;
+}
+async function checkUpdate(){
+  let web = '';
+  installedBuild = await getInstalled();
+  try{ web = (await (await fetch('./version.json?' + Date.now(), { cache:'no-store' })).json()).version; }catch(e){}
+  latestBuild = null;
+  try{
+    const j = await (await fetch('https://api.github.com/repos/' + REPO + '/releases/latest', { headers:{ Accept:'application/vnd.github+json' } })).json();
+    latestBuild = parseInt(String(j.tag_name).replace(/\D/g, '')) || null;
+  }catch(e){}
+  $('ver').textContent = 'কনটেন্ট ভার্সন: ' + (web || '—') + '\nইনস্টল করা অ্যাপ: ' + (installedBuild ? 'v' + installedBuild : (isNative ? 'অজানা' : 'ওয়েব')) + '\nসর্বশেষ APK: ' + (latestBuild ? 'v' + latestBuild : '—');
+  const newer = !!(latestBuild && installedBuild && latestBuild > installedBuild);
+  $('msg').textContent = !latestBuild ? 'আপডেট চেক করা যায়নি, ইন্টারনেট দেখুন'
+    : newer ? '🆕 নতুন ভার্সন (v' + latestBuild + ') পাওয়া গেছে'
+    : installedBuild ? '✅ আপনি সর্বশেষ ভার্সনে আছেন'
+    : 'সর্বশেষ APK: v' + latestBuild + ' (ডাউনলোড করতে নিচের বাটন)';
+  $('upd').classList.toggle('new', newer);
+  return newer;
+}
+$('upd').onclick = () => { $('sheet').hidden = false; $('msg').textContent = 'চেক করা হচ্ছে…'; checkUpdate(); };
+$('cls').onclick = () => { $('sheet').hidden = true; };
+$('sheet').addEventListener('pointerdown', e => { if (e.target === $('sheet')) $('sheet').hidden = true; });
+$('dl').onclick = () => { location.href = APK_URL; };
+$('ref').onclick = async () => {
+  try{
+    if ('caches' in window) for (const k of await caches.keys()) await caches.delete(k);
+    if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+  }catch(e){}
+  location.href = location.pathname + '?v=' + Date.now();
+};
+if (isNative) setTimeout(async () => { if (await checkUpdate()) setStatus('🆕 নতুন আপডেট আছে, ⬇️ চাপুন'); }, 5000);
+</script>
+</body>
+</html>
